@@ -1,0 +1,187 @@
+terraform {
+  required_providers {
+    aws = {
+      source = "hashicorp/aws"
+      version = "3.50.0"
+    }
+  }
+}
+
+provider "aws" {
+  # Configuration options
+  region = "eu-west-3"
+}
+
+//create VPC
+resource "aws_vpc" "myvpc1" {
+  cidr_block       = "10.0.0.0/16"
+  instance_tenancy = "default"
+
+  tags = {
+    Name = "Tag MYVPC"
+  }
+}
+
+//Public Subnet creation
+resource "aws_subnet" "pubsub" {
+  vpc_id     = aws_vpc.myvpc1.id
+  cidr_block = "10.0.1.0/24"
+  availability_zone = "eu-west-3a"
+
+  tags = {
+    Name = "PUB-SUB"
+  }
+}
+
+//Private Subnet creation
+resource "aws_subnet" "pvtsub" {
+  vpc_id     = aws_vpc.myvpc1.id
+  cidr_block = "10.0.2.0/24"
+  availability_zone = "eu-west-3b"
+
+  tags = {
+    Name = "PUT-SUB"
+  }
+}
+
+//IGW creation
+resource "aws_internet_gateway" "tigw" {
+  vpc_id = aws_vpc.myvpc1.id
+
+  tags = {
+    Name = "T- IGW"
+  }
+}
+
+//PubRT creation
+resource "aws_route_table" "pubrt" {
+  vpc_id = aws_vpc.myvpc1.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.tigw.id
+  }
+
+     tags = {
+    Name = "PUB-RT"
+  }
+}
+
+//subnet asso
+resource "aws_route_table_association" "pubasso" {
+  subnet_id      = aws_subnet.pubsub.id
+  route_table_id = aws_route_table.pubrt.id
+}
+
+//AWS EIP
+
+resource "aws_eip" "teip" {
+  vpc      = true
+}
+
+//NATGW
+resource "aws_nat_gateway" "tngw" {
+  allocation_id = aws_eip.teip.id
+  subnet_id     = aws_subnet.pubsub.id
+
+  tags = {
+    Name = "TNAT"
+  }
+
+  }
+
+//Pvt RT creation
+
+resource "aws_route_table" "pvtrt" {
+  vpc_id = aws_vpc.myvpc1.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_nat_gateway.tngw.id
+  }
+
+     tags = {
+    Name = "PVT-RT"
+  }
+}
+
+//subnet asso
+
+resource "aws_route_table_association" "pvtasso" {
+
+  subnet_id      = aws_subnet.pvtsub.id
+  route_table_id = aws_route_table.pvtrt.id
+}
+
+
+//pub SG
+resource "aws_security_group" "pubsg" {
+  name        = "pubsg"
+  description = "Allow TLS inbound traffic"
+  vpc_id      = aws_vpc.myvpc1.id
+
+  ingress {
+    description      = "TLS from VPC"
+    from_port        = 22
+    to_port          = 22
+    protocol         = "tcp"
+    cidr_blocks      = ["0.0.0.0/0"]
+    
+  }
+
+  egress {
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = ["0.0.0.0/0"]
+    
+  }
+
+  tags = {
+    Name = "PUBSG"
+  }
+}
+
+//pvt SG
+resource "aws_security_group" "pvtsg" {
+  name        = "pvtsg"
+  description = "Allow TLS inbound traffic"
+  vpc_id      = aws_vpc.myvpc1.id
+
+  ingress {
+    description      = "TLS from VPC"
+    from_port        = 22
+    to_port          = 22
+    protocol         = "tcp"
+    cidr_blocks      = ["0.0.0.0/0"]
+    
+  }
+
+  egress {
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = ["0.0.0.0/0"]
+    
+  }
+
+  tags = {
+    Name = "PVTSG"
+  }
+}
+
+//EC2 instance
+
+resource "aws_instance" "pubec2" {
+    ami                         = "ami-02b01316e6e3496d9"
+    associate_public_ip_address = "true"
+    instance_type               = "t2.micro"
+    subnet_id                   = "pubsub"
+    key_name                    = "linuxkey"
+    vpc_security_vpc_security_group_ids      = [aws_security_group.pubsg.id]
+    availability_zone           = "eu_west_3a"
+
+tags = {
+    Name = "PUBEC2"
+  }
+}
